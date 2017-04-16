@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+set -e
+
+# Run the command as the admin (debian default) user
+function as_user() {
+  su - 'admin' -c "$1"
+}
+
+echo 'deb http://ftp.debian.org/debian jessie-backports main' >> /etc/apt/sources.list
+apt-get update -y
+apt-get upgrade -y
+apt-get install -y python-pip screen vim
+apt-get install -t jessie-backports -y openjdk-8-jre-headless ca-certificates-java
+pip install --upgrade awscli
+
+cd '/home/admin'
+as_user "aws s3 cp s3://${s3_bucket}/backups/minecraft.tar.gz . --region ${region}"
+as_user "tar -xzf minecraft.tar.gz"
+as_user "/home/admin/minecraft/server start"
+
+# Backu-p on the hour
+echo "0 * * * * /home/admin/minecraft/server backup &>/home/admin/minecraft/logs/backup.log" >> cronjobs
+
+# Shutdown just after midnight (server is UTC)
+echo "10 5 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
+crontab -u 'admin' cronjobs
+rm cronjobs

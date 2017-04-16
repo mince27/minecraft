@@ -1,0 +1,115 @@
+#!/bin/bash
+#
+# Management script for a minecraft server
+#
+# Based off http://minecraft.gamepedia.com/Tutorials/Server_startup_script
+readonly USERNAME='admin'
+readonly DEST_DIR="/home/${USERNAME}"
+readonly MC_DIR="${DEST_DIR}/minecraft"
+readonly REGION='us-east-1'
+readonly S3_BUCKET='s3://mince27-mc'
+readonly SCREEN_SESSION='minecraft_server'
+readonly SERVICE='forge-1.10.2-12.18.3.2281-universal.jar'
+
+function mc_backup() {
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "say SERVER BACKUP STARTING"\015'
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "save-off"\015'
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "save-all"\015'
+    sync
+    sleep 10
+  fi
+
+  local now=$(date "+%Y-%m-%d_%Hh%M")
+  local work_dir='/tmp'
+  local backup_file="backup_${now}.tar.gz"
+  local backup_path="${work_dir}/${backup_file}"
+
+  cd "${DEST_DIR}"
+  tar -zcf "${backup_path}" 'minecraft'
+
+  cd "${work_dir}"
+  aws s3 cp "${backup_path}" "${S3_BUCKET}/backups/" --region "${REGION}"
+  aws s3 cp "${S3_BUCKET}/backups/${backup_file}" "${S3_BUCKET}/backups/minecraft.tar.gz" --region "${REGION}"
+
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    echo "Enabling saves..."
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "save-on"\015'
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "say SERVER BACKUP ENDED"\015'
+  fi
+}
+
+function mc_start() {
+  local start_cmd="java -Xms1G -Xmx3G -XX:+UseConcMarkSweepGC \
+    -XX:+CMSIncrementalPacing -XX:ParallelGCThreads=1 -XX:+AggressiveOpts \
+    -jar ${SERVICE} nogui"
+
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    echo "${SERVICE} is already running!"
+  else
+    echo "Starting ${SERVICE}..."
+    cd "${MC_DIR}"
+    screen -h 1024 -dmS ${SCREEN_SESSION} $start_cmd
+    sleep 10
+
+    if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+      echo "${SERVICE} is now running."
+    else
+      echo "Error! Could not start ${SERVICE}!"
+    fi
+  fi
+}
+
+function mc_stop() {
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    echo "Stopping ${SERVICE} after 10 second warning"
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "say SERVER SHUTTING DOWN IN 10 SECONDS."\015'
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "save-all"\015'
+    sleep 10
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "stop"\015'
+    sleep 5
+  else
+    echo "${SERVICE} was not running."
+  fi
+
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    echo "Error! ${SERVICE} could not be stopped."
+  fi
+}
+
+function mc_shutdown_warn() {
+  if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+    screen -p 0 -S ${SCREEN_SESSION} -X eval 'stuff "say SERVER SHUTDOWN IN 5 MINUTES!"\015'
+    sleep 300
+  fi
+}
+
+case "$1" in
+  backup)
+    mc_backup
+    ;;
+  start)
+    mc_start
+    ;;
+  stop)
+    mc_stop
+    ;;
+  shutdown)
+    mc_shutdown_warn
+    mc_stop
+    mc_backup
+    ;;
+  status)
+    if pgrep -u ${USERNAME} -f ${SERVICE} > /dev/null ; then
+      echo "${SERVICE} is running."
+    else
+      echo "${SERVICE} is not running."
+    fi
+    ;;
+  *)
+  echo "Usage: $0 {backup|start|stop|status}"
+  exit 1
+  ;;
+esac
+
+exit 0
