@@ -1,3 +1,4 @@
+
 .vagrant/
-server/logs
+terraform/*.tfstate*
 *.sublime-*

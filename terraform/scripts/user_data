@@ -2,7 +2,7 @@
 #
 set -e
 
-# Run the command as the admin (debian default) user
+# Run the command as non root
 function as_user() {
   su - 'admin' -c "$1"
 }
@@ -19,10 +19,10 @@ as_user "aws s3 cp s3://${s3_bucket}/backups/minecraft.tar.gz . --region ${regio
 as_user "tar -xzf minecraft.tar.gz"
 as_user "/home/admin/minecraft/server start"
 
-# Backu-p on the hour
+# Backup on the hour
 echo "0 * * * * /home/admin/minecraft/server backup &>/home/admin/minecraft/logs/backup.log" >> cronjobs
-
-# Shutdown just after midnight (server is UTC)
+# Shutdown minecraft just after midnight (server is UTC). This should be timed to happen before the
+# scheduled scaledown.
 echo "10 5 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
 crontab -u 'admin' cronjobs
 rm cronjobs

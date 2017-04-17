@@ -1,12 +1,14 @@
-provider "aws" {
-  region = "${var.region}"
-}
-
 variable "ami" {
   default = {
     # debian-jessie-amd64-hvm-2017-01-15-1221-ebs
     us-east-2 = "ami-b2795cd7"
   }
+}
+
+variable "availability_zones" {
+  type        = "list"
+  description = "Availability zones for launching the Vault instances"
+  default     = ["us-east-2a", "us-east-2b", "us-east-2c"]
 }
 
 variable "instance_type" {
@@ -21,6 +23,10 @@ variable "minecraft_port" {
   default = 25565
 }
 
+variable "name" {
+  default = "minecraft"
+}
+
 variable "region" {
   default = "us-east-2"
 }
@@ -29,8 +35,25 @@ variable "s3_bucket" {
   default = "mince27-mc"
 }
 
-variable "stack_name" {
-  default = "minecraft"
+variable "subnet_ids" {
+  type        = "list"
+  description = "Subnet to launch the server in"
+  default     = ["subnet-e3cd318a", "subnet-ccd6c2b4", "subnet-f59eabbf"]
+}
+
+###############################################
+provider "aws" {
+  region = "${var.region}"
+}
+
+###############################################
+data "template_file" "userdata" {
+  template = "${file("${path.module}/scripts/user_data")}"
+
+  vars {
+    region = "${var.region}"
+    s3_bucket = "${var.s3_bucket}"
+  }
 }
 
 ###############################################
@@ -38,6 +61,13 @@ variable "stack_name" {
 resource "aws_security_group" "minecraft" {
   name = "minecraft_sg"
   description = "Allow inbound SSH and minecraft traffic"
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   ingress {
     from_port   = 22
@@ -50,13 +80,6 @@ resource "aws_security_group" "minecraft" {
     from_port   = "${var.minecraft_port}"
     to_port     = "${var.minecraft_port}"
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
@@ -106,32 +129,82 @@ EOF
 
 resource "aws_iam_instance_profile" "minecraft" {
   name  = "minecraft_server_profile"
-  roles = ["${aws_iam_role.minecraft.name}"]
+  role  = "${aws_iam_role.minecraft.name}"
 }
 
-resource "aws_instance" "minecraft" {
-  ami                         = "${lookup(var.ami, var.region)}"
-  associate_public_ip_address = true
-  iam_instance_profile        = "${aws_iam_instance_profile.minecraft.name}"
-  instance_type               = "${var.instance_type}"
-  key_name                    = "${var.key_name}"
-  security_groups             = ["${aws_security_group.minecraft.name}"]
-  user_data                   = "${data.template_file.userdata.rendered}"
+resource "aws_elb" "minecraft" {
+  name                        = "${var.name}"
+  internal                    = false
+  security_groups             = ["${aws_security_group.minecraft.id}"]
+  subnets                     = ["${var.subnet_ids}",]
+
+  listener {
+    instance_port     = "${var.minecraft_port}"
+    instance_protocol = "tcp"
+    lb_port           = "${var.minecraft_port}"
+    lb_protocol       = "tcp"
+  }
 
   tags {
-     Name = "${var.stack_name}"
+    Name = "${var.name}"
   }
 }
 
-data "template_file" "userdata" {
-  template = "${file("${path.module}/scripts/user_data")}"
+resource "aws_launch_configuration" "minecraft" {
+  name_prefix          = "${var.name}"
+  iam_instance_profile = "${aws_iam_instance_profile.minecraft.name}"
+  image_id             = "${lookup(var.ami, var.region)}"
+  instance_type        = "${var.instance_type}"
+  key_name             = "${var.key_name}"
+  security_groups      = ["${aws_security_group.minecraft.id}"]
+  user_data            = "${data.template_file.userdata.rendered}"
+}
 
-  vars {
-    region = "${var.region}"
-    s3_bucket = "${var.s3_bucket}"
+resource "aws_autoscaling_group" "minecraft" {
+  name                      = "${var.name}"
+  availability_zones        = ["${var.availability_zones}"]
+  health_check_type         = "EC2"
+  launch_configuration      = "${aws_launch_configuration.minecraft.name}"
+  load_balancers            = ["${aws_elb.minecraft.id}"]
+  vpc_zone_identifier       = ["${var.subnet_ids}"]
+  wait_for_elb_capacity     = false
+  desired_capacity          = 0
+  min_size                  = 0
+  max_size                  = 0
+
+  tag {
+    key                 = "Name"
+    value               = "${var.name}"
+    propagate_at_launch = true
   }
 }
 
-output "ip_address" {
-  value = "${aws_instance.minecraft.public_ip}"
+resource "aws_autoscaling_schedule" "scaledown" {
+  autoscaling_group_name = "${aws_autoscaling_group.minecraft.name}"
+  scheduled_action_name  = "mc-shutdown"
+
+  desired_capacity       = 0
+  min_size               = 0
+  max_size               = 0
+
+  # Server is UTC so 5:20 = 12:20AM CDT
+  recurrence             = "20 5 * * *"
+}
+
+resource "aws_autoscaling_schedule" "scaleup" {
+  autoscaling_group_name = "${aws_autoscaling_group.minecraft.name}"
+  scheduled_action_name  = "mc-startup"
+
+  desired_capacity       = 1
+  min_size               = 1
+  max_size               = 1
+
+  # Server is UTC so 23:45 = 06:45PM CDT
+  recurrence             = "45 23 * * *"
+}
+
+###############################################
+
+output "server_url" {
+  value = "${aws_elb.minecraft.dns_name}"
 }
