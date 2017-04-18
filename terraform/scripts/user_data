@@ -1,28 +1,32 @@
 #!/bin/bash
-#
 set -e
 
-# Run the command as non root
-function as_user() {
-  su - 'admin' -c "$1"
+function setup() {
+  echo 'deb http://ftp.debian.org/debian jessie-backports main' >> /etc/apt/sources.list
+  apt-get update -y
+  apt-get upgrade -y
+  apt-get install -y python-pip screen vim
+  apt-get install -t jessie-backports -y openjdk-8-jre-headless ca-certificates-java
+  pip install --upgrade awscli
 }
 
-echo 'deb http://ftp.debian.org/debian jessie-backports main' >> /etc/apt/sources.list
-apt-get update -y
-apt-get upgrade -y
-apt-get install -y python-pip screen vim
-apt-get install -t jessie-backports -y openjdk-8-jre-headless ca-certificates-java
-pip install --upgrade awscli
+function load_server() {
+  cd '/home/admin'
+  su - 'admin' -c "aws s3 cp s3://${s3_bucket}/backups/minecraft.tar.gz . --region ${region}"
+  su - 'admin' -c "tar -xzf minecraft.tar.gz"
+  su - 'admin' -c "/home/admin/minecraft/server start"
+}
 
-cd '/home/admin'
-as_user "aws s3 cp s3://${s3_bucket}/backups/minecraft.tar.gz . --region ${region}"
-as_user "tar -xzf minecraft.tar.gz"
-as_user "/home/admin/minecraft/server start"
+function create_crontab() {
+  # Create a backup every other hour
+  echo "0 */2 * * * /home/admin/minecraft/server backup &>/home/admin/minecraft/logs/backup.log" >> cronjobs
+  # Stop minecraft and create a backup (this should happen before the ASG shutdown)
+  echo "10 4 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
+  crontab -u 'admin' cronjobs
+  rm cronjobs
+}
 
-# Backup on the hour
-echo "0 * * * * /home/admin/minecraft/server backup &>/home/admin/minecraft/logs/backup.log" >> cronjobs
-# Shutdown minecraft just after midnight (server is UTC). This should be timed to happen before the
-# scheduled scaledown.
-echo "10 5 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
-crontab -u 'admin' cronjobs
-rm cronjobs
+# Main
+setup
+load_server
+create_crontab

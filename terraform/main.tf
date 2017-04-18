@@ -1,46 +1,3 @@
-variable "ami" {
-  default = {
-    # debian-jessie-amd64-hvm-2017-01-15-1221-ebs
-    us-east-2 = "ami-b2795cd7"
-  }
-}
-
-variable "availability_zones" {
-  type        = "list"
-  description = "Availability zones for launching the Vault instances"
-  default     = ["us-east-2a", "us-east-2b", "us-east-2c"]
-}
-
-variable "instance_type" {
-  default = "t2.medium"
-}
-
-variable "key_name" {
-  default = "minecraft"
-}
-
-variable "minecraft_port" {
-  default = 25565
-}
-
-variable "name" {
-  default = "minecraft"
-}
-
-variable "region" {
-  default = "us-east-2"
-}
-
-variable "s3_bucket" {
-  default = "mince27-mc"
-}
-
-variable "subnet_ids" {
-  type        = "list"
-  description = "Subnet to launch the server in"
-  default     = ["subnet-e3cd318a", "subnet-ccd6c2b4", "subnet-f59eabbf"]
-}
-
 ###############################################
 provider "aws" {
   region = "${var.region}"
@@ -57,7 +14,6 @@ data "template_file" "userdata" {
 }
 
 ###############################################
-
 resource "aws_security_group" "minecraft" {
   name = "minecraft_sg"
   description = "Allow inbound SSH and minecraft traffic"
@@ -133,10 +89,10 @@ resource "aws_iam_instance_profile" "minecraft" {
 }
 
 resource "aws_elb" "minecraft" {
-  name                        = "${var.name}"
-  internal                    = false
-  security_groups             = ["${aws_security_group.minecraft.id}"]
-  subnets                     = ["${var.subnet_ids}",]
+  name            = "${var.name}"
+  internal        = false
+  security_groups = ["${aws_security_group.minecraft.id}"]
+  subnets         = ["${var.subnet_ids}",]
 
   listener {
     instance_port     = "${var.minecraft_port}"
@@ -179,32 +135,25 @@ resource "aws_autoscaling_group" "minecraft" {
   }
 }
 
-resource "aws_autoscaling_schedule" "scaledown" {
+resource "aws_autoscaling_schedule" "minecraft-shutdown" {
   autoscaling_group_name = "${aws_autoscaling_group.minecraft.name}"
+  recurrence             = "${var.scheduled_shutdown}"
   scheduled_action_name  = "mc-shutdown"
-
   desired_capacity       = 0
   min_size               = 0
   max_size               = 0
-
-  # Server is UTC so 5:20 = 12:20AM CDT
-  recurrence             = "20 5 * * *"
 }
 
-resource "aws_autoscaling_schedule" "scaleup" {
+resource "aws_autoscaling_schedule" "minecraft-startup" {
   autoscaling_group_name = "${aws_autoscaling_group.minecraft.name}"
+  recurrence             = "${var.scheduled_startup}"
   scheduled_action_name  = "mc-startup"
-
   desired_capacity       = 1
   min_size               = 1
   max_size               = 1
-
-  # Server is UTC so 23:45 = 06:45PM CDT
-  recurrence             = "45 23 * * *"
 }
 
 ###############################################
-
 output "server_url" {
   value = "${aws_elb.minecraft.dns_name}"
 }
