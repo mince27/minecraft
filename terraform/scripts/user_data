@@ -21,7 +21,7 @@ function create_crontab() {
   # Create a backup every other hour
   echo "0 */2 * * * /home/admin/minecraft/server backup &>/home/admin/minecraft/logs/backup.log" >> cronjobs
   # Stop minecraft and create a backup (this should happen before the ASG shutdown)
-  echo "10 4 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
+  echo "30 3 * * * /home/admin/minecraft/server shutdown &>/home/admin/minecraft/logs/shutdown.log" >> cronjobs
   crontab -u 'admin' cronjobs
   rm cronjobs
 }

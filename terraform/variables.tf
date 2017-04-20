@@ -42,14 +42,14 @@ variable "s3_bucket" {
 }
 
 variable "scheduled_shutdown" {
-  description = "Cron expression for server stop"
-  # Server is UTC so 4:20 = 11:20AM CDT
+  description = "Cron expression for server instance shutdown"
+  # Server is UTC so 3:40 = 10:40PM CDT
   # Coordinate this with the cronjob in user_data that stops minecraft
-  default     = "20 4 * * *"
+  default     = "40 3 * * *"
 }
 
 variable "scheduled_startup" {
-  description = "Cron expression for server start"
+  description = "Cron expression for server instance startup"
   # Server is UTC so 23:45 = 06:45PM CDT
   default = "45 23 * * *"
 }

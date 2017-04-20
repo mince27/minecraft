@@ -13,7 +13,7 @@ Terraform script for automating the deployment of a Minecraft server in AWS. The
 
 ##### Accessing
 
-The server is scheduled to be up from 6:45PM to 11:15PM CDT
+The server is scheduled to be up from 6:45PM to 10:30PM CDT
 
 * Start Minecraft
 * Select the Forge version of minecraft from the launcher dropdown
