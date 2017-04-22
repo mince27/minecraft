@@ -101,6 +101,13 @@ resource "aws_elb" "minecraft" {
     lb_protocol       = "tcp"
   }
 
+  listener {
+    instance_port     = "22"
+    instance_protocol = "tcp"
+    lb_port           = "22"
+    lb_protocol       = "tcp"
+  }
+
   tags {
     Name = "${var.name}"
   }
